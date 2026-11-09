@@ -1,0 +1,752 @@
+# Theory text for the dashboard ("Why?" explanations, "How it works", "Reality check").
+#
+# EVERYTHING here is taken from RESEARCH_REPORT.md (the only allowed source).  Rules:
+#   * a source link is only used if the exact URL appears in RESEARCH_REPORT.md (tests enforce it);
+#   * where the report gives no link or no evidence for something, the entry says so instead of
+#     inventing a paper;
+#   * `report_section` names the heading of RESEARCH_REPORT.md the text comes from.
+#
+# Every entry has the same keys: title, plain_english, formula, evidence, caveats, sources
+# (list of {title, authors, year, url}), report_section, and optionally `source_note`.
+#
+# Top-level blocks:
+#   feature_groups  one entry per group in quant/features.py `feature_groups` (tests check this)
+#   models          the models and testing ideas used on the "How it works" page
+#   reality_check   the facts for the "Reality check" page
+feature_groups:
+
+  returns:
+    short_name: recent daily returns
+    short: >-
+      The last few daily moves, and how much of today's move happened overnight versus during trading hours. The research report rates this a low-prior input, because daily moves are mostly noise.
+    title: Recent daily returns
+    plain_english: >-
+      The model looks at how the asset moved on each of the last few days (and, for the ETFs, how much
+      of today's move happened overnight versus during trading hours). Daily moves are mostly noise, so
+      this group is a low-prior input: it is there so the model can notice short runs of ups or downs.
+    formula: "r_t = ln(C_t / C_{t-1});  overnight gap g_t = ln(O_t / C_{t-1});  intraday move i_t = ln(C_t / O_t);  r_t = g_t + i_t"
+    evidence: >-
+      The overnight/intraday literature is genuinely mixed. One study using 24-hour E-mini futures found
+      that the four hours around the European open account for the entire average market return; another
+      found about 40% of the aggregate US premium earned intraday in 1993-2013, with its strongest result
+      being cross-sectional.
+    caveats: >-
+      For a close-to-close target, the overnight gap and intraday move are cheap, free features from data
+      yfinance already supplies, but they carry a low prior.
+    sources:
+      - title: "Bondarenko & Muravyev 2023: the average market return around the clock (24-hour E-mini futures)"
+        authors: Bondarenko & Muravyev
+        year: 2023
+        url: "https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/abs/market-return-around-the-clock-a-puzzle/089E33AC0B4D3B9A02CBA31EDF6505B3"
+      - title: "Lou, Polk & Skouras 2019: overnight versus intraday returns"
+        authors: Lou, Polk & Skouras
+        year: 2019
+        url: "https://personal.lse.ac.uk/polk/research/TugOfWar.pdf"
+    report_section: "Three daily signal families survive scrutiny > Short-term reversal is the best-supported daily equity feature"
+
+  reversal:
+    short_name: short-term reversal
+    short: >-
+      Since about 2000, daily index moves have tended to partly bounce back, possibly linked to the growth of indexing and ETF arbitrage (Baltussen, van Bekkum & Da 2019).
+    title: Short-term reversal (last 5 days)
+    plain_english: >-
+      Since about 2000, daily index moves have tended to partly bounce back: a run of up days is slightly
+      more likely to be followed by a down day. The authors link this to the growth of indexing and ETF
+      arbitrage. The model gets the sum of the last five daily returns as one explicit feature and can
+      learn a negative weight on it if the bounce-back is still there.
+    formula: "R5_t = r_t + r_{t-1} + ... + r_{t-4}  (sum of the last five daily log returns)"
+    evidence: >-
+      Baltussen, van Bekkum and Da studied 20 indices in 15 countries. Before 1999 average next-day
+      autocorrelation was about +0.05; after March 1999 it was negative for 16 of 20 indices, and the
+      five-day version was negative for all 20. A strategy trading against it earned a gross Sharpe of
+      0.67 on the S&P 500.
+    caveats: >-
+      The authors warn it "perhaps is not exploitable to many investors after accounting for transaction
+      costs". Their sample ends in 2016 and the research notes could not verify the sign after that, so
+      the walk-forward has to show whether the effect survives. Evidence strength at the daily horizon is
+      moderate and cost-fragile.
+    sources:
+      - title: "Baltussen, van Bekkum & Da 2019: daily index return reversal"
+        authors: Baltussen, van Bekkum & Da
+        year: 2019
+        url: "https://personal.eur.nl/vanbekkum/2018%20JFE%20BaltussenVanBekkumDa.pdf"
+    report_section: "Three daily signal families survive scrutiny > Short-term reversal is the best-supported daily equity feature"
+
+  volatility:
+    short_name: recent volatility
+    short: >-
+      Volatility mostly predicts future volatility rather than direction, but it feeds weakly into direction because it changes the odds of an up day when the expected return is not zero (Christoffersen & Diebold 2006).
+    title: Recent volatility
+    plain_english: >-
+      How bumpy the last 10, 20 and 60 days were (and a less noisy estimate that also uses each day's
+      high and low). Volatility mostly predicts future volatility, not direction. It feeds weakly into
+      direction because, when the expected return is not zero, volatility changes the odds of an up day.
+      Its best-documented use is for sizing: hold less when recent volatility is high.
+    formula: "RV_n = (252/n) * sum(r^2) over the last n days (annualised); Yang-Zhang combines the overnight gap, the open-to-close move and the intraday high-low range into one less noisy volatility estimate"
+    evidence: >-
+      Christoffersen and Diebold show that volatility dynamics create predictable sign behaviour whenever
+      the expected return is non-zero, even when the expected return itself is not predictable. Moreira
+      and Muir scale exposure by the inverse of last month's realised variance; for the US market over
+      1926-2015 this gave an alpha of 4.86% a year and lifted the Sharpe ratio from 0.42 to 0.51.
+    caveats: >-
+      Across 103 factor strategies, real-time volatility-managed versions generally had lower Sharpe
+      ratios than unmanaged ones (Cederburg et al. 2020), and no peer-reviewed evidence specific to
+      Bitcoin was found. Evidence is strong for volatility itself, weak for the sign of the next day.
+    sources:
+      - title: "Christoffersen & Diebold 2006: volatility dynamics and sign predictability"
+        authors: Christoffersen & Diebold
+        year: 2006
+        url: "https://www.nber.org/papers/w10009"
+      - title: "Moreira & Muir 2017: volatility-managed portfolios"
+        authors: Moreira & Muir
+        year: 2017
+        url: "https://amoreira2.github.io/alan-moreira.github.io/VolPortfolios_published.pdf"
+      - title: "Cederburg et al. 2020: real-time volatility-managed factor strategies"
+        authors: Cederburg et al.
+        year: 2020
+        url: "https://alphaarchitect.com/does-portfolio-timing-based-on-volatility-signals-outperform-buy-and-hold/"
+      - title: "LuxAlgo: the Yang-Zhang volatility estimator"
+        authors: LuxAlgo (summary of the estimator)
+        year: null
+        url: "https://www.luxalgo.com/library/concept/yang-zhang-estimator/"
+    report_section: "Three daily signal families survive scrutiny > Volatility predicts risk and regime far better than direction"
+
+  vix_stress:
+    short_name: the VIX and stress gauges
+    short: >-
+      The VIX and its term structure are slow-moving stress gauges; backwardation (near-term fear above longer-term fear) has been a contrarian signal in one 2010-2017 sample (Fassas & Hourvouliades 2019).
+    title: VIX and market stress
+    plain_english: >-
+      The VIX measures the volatility that option prices expect over the next 30 days. The model looks at
+      its level and change, at the VIX term structure (VIX divided by VIX3M; above 1 means near-term fear
+      exceeds longer-term fear, called backwardation) and at the variance risk premium (how much more
+      volatility options price in than has recently occurred). These are slow-moving stress gauges, not
+      daily alpha.
+    formula: "VRP_t = (VIX_t/100)^2 - RV_21,t;   TS1_t = VIX_t / VIX3M_t;   backwardation dummy = 1{VIX_t > VIX3M_t}"
+    evidence: >-
+      In minute-level machine-learning work on S&P returns, VIX was the single strongest predictor
+      (Ferreira & Medeiros 2021). A high variance risk premium has predicted higher equity returns over
+      the following one to three months, with monthly R-squared of roughly 1.5-4% (Drechsler & Yaron
+      2011). Backwardation in the VIX futures curve has been a significant contrarian signal for
+      subsequent S&P 500 returns (Fassas & Hourvouliades 2019).
+    caveats: >-
+      The backwardation result rests on a single 2010-2017 sample without an out-of-sample test, and most
+      published VIX term-structure research predicts the returns of volatility products, not of the
+      index itself (Johnson 2017). ^VIX3M history begins in 2007, so these features are missing before
+      then. Evidence is moderate and mostly monthly.
+    sources:
+      - title: "Fassas & Hourvouliades 2019: VIX futures backwardation as a contrarian signal"
+        authors: Fassas & Hourvouliades
+        year: 2019
+        url: "https://mdpi.com/1911-8074/12/3/113"
+      - title: "Ferreira & Medeiros 2021: VIX as the strongest predictor of S&P returns"
+        authors: Ferreira & Medeiros
+        year: 2021
+        url: "https://arxiv.org/abs/2112.15108"
+      - title: "Drechsler & Yaron 2011: the variance risk premium and later equity returns"
+        authors: Drechsler & Yaron
+        year: 2011
+        url: "https://core.ac.uk/download/132270718.pdf"
+      - title: "Johnson 2017: VIX term-structure research"
+        authors: Johnson
+        year: 2017
+        url: "https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/abs/risk-premia-and-the-vix-term-structure/56572D1F060448571BD8F597C732D9C3"
+    report_section: "Three daily signal families survive scrutiny > Volatility predicts risk and regime far better than direction"
+
+  trend:
+    short_name: slow trend
+    short: >-
+      Time-series momentum is one of the most robust findings in finance at monthly horizons (Hurst, Ooi & Pedersen 2017), so the model uses trend as a regime input rather than a daily trigger.
+    title: Slow trend and moving averages
+    plain_english: >-
+      Whether the price is above or below where it was 1 to 12 months ago, and how far it sits from its
+      50- and 200-day average. Time-series momentum, the sign of the past 1- to 12-month return, is one of
+      the most robust findings in finance, but its home is roughly a one-month holding period, so the model
+      uses it as a regime input (is the market in an uptrend?) rather than a daily trigger. For Bitcoin the
+      trend windows are shorter (7 to 28 days) plus a 20-day-new-high flag.
+    formula: "trend_k = ln(C_t / C_{t-k}) for k = 63, 126, 252 trading days (ETFs) or k = 7, 14, 21, 28 days (BTC);  distance to moving average = C_t / MA_n - 1"
+    evidence: >-
+      Time-series momentum has been positive in every decade since 1880 across 67 markets (Hurst, Ooi &
+      Pedersen 2017). For equity index futures the 12-month lookback with a one-month hold has a
+      t-statistic of 3.77 (Moskowitz, Ooi & Pedersen 2012). Crypto shows a strong time-series momentum
+      effect (Liu & Tsyvinski 2021), and cross-sectional crypto momentum is significant at 1- to 4-week
+      horizons and fades by 8 weeks (Liu, Tsyvinski & Wu 2022).
+    caveats: >-
+      The strong daily moving-average results on the Dow failed out of sample once data snooping was
+      corrected (Sullivan, Timmermann & White 1999). Lookbacks beyond 12 months partially reverse. The
+      Bitcoin trend results come from an early, illiquid market and should be expected to have decayed
+      since spot ETFs launched in 2024. RSI is a re-parameterisation of recent returns and moving-average
+      distance (the report calls such near-duplicates redundant).
+    sources:
+      - title: "Hurst, Ooi & Pedersen 2017: time-series momentum since 1880"
+        authors: Hurst, Ooi & Pedersen
+        year: 2017
+        url: "https://fairmodel.econ.yale.edu/ec439/hurst.pdf"
+      - title: "Moskowitz, Ooi & Pedersen 2012: time-series momentum in index futures"
+        authors: Moskowitz, Ooi & Pedersen
+        year: 2012
+        url: "https://fairmodel.econ.yale.edu/ec439/jpde.pdf"
+      - title: "Liu & Tsyvinski 2021: time-series momentum and attention in crypto"
+        authors: Liu & Tsyvinski
+        year: 2021
+        url: "https://nber.org/papers/w24877"
+      - title: "Liu, Tsyvinski & Wu 2022: cross-sectional crypto momentum"
+        authors: Liu, Tsyvinski & Wu
+        year: 2022
+        url: "https://www.nber.org/papers/w25882.pdf"
+      - title: "Sullivan, Timmermann & White 1999: data-snooping-adjusted technical trading rules"
+        authors: Sullivan, Timmermann & White
+        year: 1999
+        url: "https://bashtage.github.io/kevinsheppard.com/files/teaching/mfe/advanced-econometrics/Sullivan_Timmermann_White.pdf"
+    report_section: "Three daily signal families survive scrutiny > Trend works at monthly horizons, so use it as a regime switch"
+
+  calendar:
+    short_name: calendar effects
+    short: >-
+      Calendar effects have mostly decayed for large-cap US indices; the pre-FOMC drift is the best grounded one but occurs only about eight days a year (NY Fed 2018).
+    title: Calendar effects (tomorrow's weekday, pre-FOMC)
+    plain_english: >-
+      The model knows which weekday the predicted day falls on (and, for Bitcoin, whether it is a weekend)
+      and whether a scheduled Fed (FOMC) announcement falls on it. These are known in advance, so they
+      involve no lookahead. Calendar effects have mostly decayed for large-cap US indices; the pre-FOMC
+      drift is the most economically grounded one but occurs only about eight days a year.
+    formula: "day-of-week of day t+1; pre-FOMC dummy = 1 if day t+1 is a scheduled FOMC announcement date (SPY/QQQ/IWM only)"
+    evidence: >-
+      The pre-FOMC drift was about 50 bp in the 24 hours before scheduled Fed announcements over
+      1994-2011; over 2011-2018 it survived only at meetings with a press conference (NY Fed).
+    caveats: >-
+      The pre-holiday premium is not significant for the S&P 500 over 1983-2019 (t = 0.64); the classic
+      turn-of-month window has "largely disappeared" for SPY; calendar effects in Bitcoin show "no
+      consistent or persistent patterns". The report rates day-of-week as a low prior and the pre-FOMC
+      dummy as a small-sample, low-prior feature.
+    sources:
+      - title: "NY Fed Liberty Street Economics 2018: the pre-FOMC announcement drift"
+        authors: NY Fed, Liberty Street Economics
+        year: 2018
+        url: "https://libertystreeteconomics.newyorkfed.org/2018/11/the-pre-fomc-announcement-drift-more-recent-evidence.html"
+      - title: "Ko & Yang: the pre-holiday premium"
+        authors: Ko & Yang
+        year: null
+        url: "https://cfr.ivo-welch.org/forthcoming/papers/ko2021pre.pdf"
+      - title: "QuantSeeker: turn-of-the-month strategies"
+        authors: QuantSeeker
+        year: null
+        url: "https://www.quantseeker.com/p/turn-of-the-month-strategies-do-they"
+      - title: "Quantpedia summary of Baur et al.: calendar effects in Bitcoin"
+        authors: Quantpedia (summary of Baur et al.)
+        year: null
+        url: "https://quantpedia.com/are-there-any-simple-calendar-effects-in-bitcoin-market/"
+    report_section: "Three daily signal families survive scrutiny > Most other popular features are decayed or redundant"
+
+  cross_asset:
+    short_name: other markets
+    short: >-
+      Bitcoin's same-day co-movement with US stocks has risen (daily correlation 0.01 in 2017-19 to 0.36 in 2020-21, IMF), but no source in the research report shows that lagged equity moves predict Bitcoin's next day.
+    title: Other markets (cross-asset)
+    plain_english: >-
+      For Bitcoin, the model also sees what the S&P 500, Nasdaq-100 and Russell 2000 did, how closely
+      Bitcoin has been tracking the S&P 500 over the last 60 days, and a flag (stale) that marks days when
+      those stock-market values are carried over from Friday or a holiday. For the Russell 2000 it sees
+      how much it beat or lagged the S&P 500 over five days.
+    formula: "rolling 60-day BTC-SPY return correlation; stale flag = 1 when a cross-asset value is carried forward from an earlier day"
+    evidence: >-
+      The daily Bitcoin-S&P correlation jumped from 0.01 in 2017-19 to 0.36 in 2020-21 (IMF).
+    caveats: >-
+      That is same-day co-movement, and no source in the research notes shows that lagged equity moves
+      predict Bitcoin's next day. The report keeps the as-of cross-asset features but flags weekend rows as
+      stale so the model does not treat stale values as fresh information. RESEARCH_REPORT.md gives no
+      source for the Russell-minus-S&P five-day spread feature.
+    sources:
+      - title: "IMF: Bitcoin-S&P correlation"
+        authors: IMF
+        year: null
+        url: "https://content.govdelivery.com/accounts/USIMF/bulletins/30520df"
+        link_note: "(link no longer works)"
+    source_note: "No paper for the IWM-SPY spread feature is cited in RESEARCH_REPORT.md."
+    report_section: "Three daily signal families survive scrutiny > Bitcoin's documented predictors run over days to weeks"
+
+# ---------------------------------------------------------------------------------------------
+models:
+
+  logistic_regression:
+    title: Logistic regression
+    plain_english: >-
+      Each feature gets a weight. The weighted total is squashed through an S-shaped curve so it always
+      lands between 0 and 1: that is the probability of an up day. Positive weights push the probability
+      above the baseline. L2 regularisation penalises large weights and keeps the model from chasing noise
+      (smaller C means more shrinkage toward the base rate). It is the model everything else has to beat.
+    formula: "P(up_{t+1} | x_t) = 1 / (1 + exp(-(b0 + b1*x1 + ... + bk*xk)))"
+    evidence: >-
+      In Becker and Leschinski's out-of-sample test of the 30 Dow stocks, logistic regression was the best
+      model at 51.99% (random forest worst at 50.51%). In Fischer and Krauss it was competitive before
+      costs but not significantly profitable after them.
+    caveats: Even the best simple model is barely above chance at the daily horizon.
+    sources:
+      - title: "Macrosynergy summary of Becker & Leschinski: daily direction of Dow stocks"
+        authors: Becker & Leschinski
+        year: null
+        url: "https://macrosynergy.com/?p=40742"
+      - title: "Fischer & Krauss 2018: LSTM on S&P 500 constituents (working paper)"
+        authors: Fischer & Krauss
+        year: 2018
+        url: "https://iwf.rw.fau.de/files/2015/12/11-2017.pdf"
+    report_section: "Simple, regularized, calibrated models beat flexible ones on this problem"
+
+  random_forest:
+    title: Random forest
+    plain_english: >-
+      Many small decision trees vote. Forests can find interactions such as "reversal works only when the
+      VIX is high". Here they are kept small and heavily regularised because daily data are mostly noise.
+    formula: "average of many decision trees, each trained on a random sample of days and features"
+    evidence: >-
+      Random forest was the best single model in Krauss et al. (after-cost Sharpe 1.90), on a
+      cross-sectional stock-selection problem.
+    caveats: >-
+      With only about 6,000 daily rows for SPY and fewer for BTC, tree models must be small and heavily
+      regularised. In the Dow-stocks test above, random forest was the worst model (50.51%): flexible ML
+      overfits.
+    sources:
+      - title: "Krauss et al.: ML ensembles on S&P 500 constituents (working paper)"
+        authors: Krauss, Do & Huck
+        year: 2016
+        url: "https://www.iwf.rw.fau.de/files/2016/03/03-2016.pdf"
+      - title: "Macrosynergy summary of Becker & Leschinski: daily direction of Dow stocks"
+        authors: Becker & Leschinski
+        year: null
+        url: "https://macrosynergy.com/?p=40742"
+    report_section: "Simple, regularized, calibrated models beat flexible ones on this problem"
+
+  lightgbm:
+    title: LightGBM (gradient-boosted trees)
+    plain_english: >-
+      Trees are added one after another, each correcting the mistakes of the previous ones. Boosted trees
+      can capture interactions but their raw outputs are distorted, which is why every model here is
+      calibrated afterwards.
+    formula: "sum of many small trees fitted to the remaining errors; settings kept small (at most 15 leaves, at least 100 samples per leaf)"
+    evidence: >-
+      Deep learning (LSTM, GRU) beat tree models by at most about 3 bp a day or 1 percentage point of
+      accuracy, often not significantly, so the project stays with trees.
+    caveats: Boosted trees distort their probabilities; after correction they give some of the best probabilities.
+    sources:
+      - title: "Niculescu-Mizil & Caruana 2005: predicting good probabilities"
+        authors: Niculescu-Mizil & Caruana
+        year: 2005
+        url: "https://mlanthology.org/icml/2005/niculescumizil2005icml-predicting"
+      - title: "Fischer & Krauss 2018: LSTM on S&P 500 constituents (working paper)"
+        authors: Fischer & Krauss
+        year: 2018
+        url: "https://iwf.rw.fau.de/files/2015/12/11-2017.pdf"
+    report_section: "Simple, regularized, calibrated models beat flexible ones on this problem"
+
+  ensemble:
+    title: Equal-weight ensemble
+    plain_english: >-
+      The probabilities of the three calibrated models (logistic regression, random forest, LightGBM) are
+      averaged. Averaging many weak forecasts is more robust than picking whichever model looked best in
+      the backtest.
+    formula: "p_ensemble = (p_logreg + p_rf + p_lgbm) / 3"
+    evidence: >-
+      An equal-weight ensemble of diverse models had the highest directional accuracy at every portfolio
+      size in Krauss et al., mirroring Rapach, Strauss and Zhou's finding that averaging many weak
+      forecasts beats the historical mean because averaging reduces model instability.
+    caveats: The Rapach et al. results are monthly; the lesson that carries over to daily models is to average models.
+    sources:
+      - title: "Krauss et al.: ML ensembles on S&P 500 constituents (working paper)"
+        authors: Krauss, Do & Huck
+        year: 2016
+        url: "https://www.iwf.rw.fau.de/files/2016/03/03-2016.pdf"
+      - title: "Rapach, Strauss & Zhou 2010: combination forecasts"
+        authors: Rapach, Strauss & Zhou
+        year: 2010
+        url: "https://academicnewsletter.sufe.edu.cn/info/354918"
+    report_section: "Simple, regularized, calibrated models beat flexible ones on this problem"
+
+  walk_forward:
+    title: Walk-forward testing
+    plain_english: >-
+      The model is trained only on the past and tested on the following month, then the window moves
+      forward and the process repeats (expanding walk-forward, monthly refits). A one-day gap between the
+      last training label and the first test day stops the single overlapping row from leaking. An
+      untouched hold-out at the end is kept for one final check.
+    formula: "train on days up to t-1 (one-day gap), predict the next month, refit monthly"
+    evidence: >-
+      The report calls this validation skeleton best practice; for a beginner project walk-forward is the
+      right primary test, and combinatorial purged cross-validation is an optional extra.
+    caveats: >-
+      For Bitcoin, whose market structure changed sharply, a rolling window of about 3-4 years is worth
+      running alongside the expanding window; the notes found no source giving an optimal length.
+    sources:
+      - title: "Wikipedia: purged cross-validation"
+        authors: Wikipedia
+        year: null
+        url: "https://en.wikipedia.org/wiki/Purged_cross-validation"
+        link_note: "(link no longer works)"
+    report_section: "Proving an edge is real takes more than one backtest"
+
+  calibration:
+    title: Calibration (Platt scaling)
+    plain_english: >-
+      A dashboard that says "54% chance of up" makes a promise: of all the days it says 54%, about 54%
+      should actually be up. Calibration bends the model's raw scores onto the observed frequencies. Platt
+      (sigmoid) scaling fits a two-parameter logistic regression on the raw score, using a chronologically
+      later slice of each training window than the one the model learned from.
+    formula: "p = 1 / (1 + exp(A*f + B)) on the model's raw score f"
+    evidence: >-
+      After correction, boosted trees and random forests give some of the best probabilities (Niculescu-Mizil
+      & Caruana 2005). Isotonic regression is more flexible but "more prone to overfitting" below about
+      1,000 samples.
+    caveats: >-
+      The scikit-learn guide does not cover time series and its default cv=5 shuffles across time, so
+      calibration here never uses shuffled folds. The notes found no daily index-direction paper reporting
+      Brier scores, so this is something the literature mostly skips.
+    sources:
+      - title: "scikit-learn: probability calibration guide"
+        authors: scikit-learn
+        year: null
+        url: "https://scikit-learn.org/stable/modules/calibration.html"
+      - title: "Niculescu-Mizil & Caruana 2005: predicting good probabilities"
+        authors: Niculescu-Mizil & Caruana
+        year: 2005
+        url: "https://mlanthology.org/icml/2005/niculescumizil2005icml-predicting"
+    report_section: "Simple, regularized, calibrated models beat flexible ones on this problem > Calibration turns scores into probabilities a dashboard can show"
+
+  climatology_baseline:
+    title: Climatology baseline (the base rate)
+    plain_english: >-
+      Stocks rise on slightly more than half of days, so "always up" scores above 50% with zero skill. The
+      honest reference is climatology: a constant forecast equal to the training window's up-day
+      frequency. That is why every probability on the dashboard is shown next to the base rate: 52% when
+      the typical day is 54% is a below-average day, not a bullish one. The base rate can drift: a
+      model can beat the training-window rate simply because up days became more common later, so the
+      dashboard also scores it against the base rate of the evaluation window itself.
+    formula: "p_climatology = share of up days in the training window"
+    evidence: "Accuracy against 50% is misleading; the right reference is climatology."
+    caveats: ""
+    sources: []
+    source_note: "RESEARCH_REPORT.md states this as the project's own method and gives no external link for it."
+    report_section: "Simple, regularized, calibrated models beat flexible ones on this problem > Calibration turns scores into probabilities a dashboard can show"
+
+  brier_skill:
+    title: Brier skill score
+    plain_english: >-
+      Brier is the average squared gap between forecast and outcome. The skill score shows what fraction of
+      the climatology error the model removed. Zero means the model knows nothing beyond the base rate;
+      negative means it is worse than just quoting the base rate. It is shown two ways: against the
+      training-window base rate (can look positive from base-rate drift alone) and against the base rate
+      of the evaluation window itself (cannot). The evidence badge needs both to be positive.
+    formula: "Brier = mean[(p - y)^2];  Brier skill score = 1 - Brier_model / Brier_climatology;  Log loss = -mean[y*ln(p) + (1-y)*ln(1-p)]"
+    evidence: >-
+      With realistic daily edges, a positive skill score of even 0.005 would be noteworthy. Log loss
+      punishes confident wrong calls very harshly.
+    caveats: >-
+      Reporting hit rate by confidence bucket shows whether the probability ranking carries information even
+      when the average edge is tiny (Jaquart, Koepke & Weinhardt 2022 found 57.5-59.5% on the 10% most
+      confident crypto predictions versus 52.9-54.1% overall).
+    sources:
+      - title: "Jaquart, Koepke & Weinhardt 2022: crypto accuracy by confidence bucket"
+        authors: Jaquart, Köpke & Weinhardt
+        year: 2022
+        url: "https://doaj.org/article/cfc09801314441198e3e1c92a3914e54"
+    report_section: "Simple, regularized, calibrated models beat flexible ones on this problem > Calibration turns scores into probabilities a dashboard can show"
+
+  volatility_targeting:
+    title: Volatility targeting
+    plain_english: >-
+      When the past month was calm, hold more; when it was turbulent, hold less. The report calls this the
+      best-documented "edge" in the literature, and it is about sizing, not direction. That is why a
+      volatility-targeted buy-and-hold is always shown as a baseline: an ML model that cannot beat it adds
+      nothing.
+    formula: "w_t = min(1, sigma_target / sigma_hat_t)"
+    evidence: >-
+      Harvey et al. confirmed it across 60 assets with a 10% volatility target; US equity Sharpe rose from
+      0.40 to 0.48-0.51. Moreira and Muir's break-even cost is about 56 bp.
+    caveats: >-
+      Real-time volatility-managed versions generally had lower Sharpe ratios across 103 factor strategies
+      (Cederburg et al. 2020); no peer-reviewed evidence specific to BTC was found.
+    sources:
+      - title: "Moreira & Muir 2017: volatility-managed portfolios"
+        authors: Moreira & Muir
+        year: 2017
+        url: "https://amoreira2.github.io/alan-moreira.github.io/VolPortfolios_published.pdf"
+      - title: "Harvey et al. 2018: volatility targeting across 60 assets"
+        authors: Harvey et al.
+        year: 2018
+        url: "https://scholars.duke.edu/publication/1370354"
+      - title: "Cederburg et al. 2020: real-time volatility-managed factor strategies"
+        authors: Cederburg et al.
+        year: 2020
+        url: "https://alphaarchitect.com/does-portfolio-timing-based-on-volatility-signals-outperform-buy-and-hold/"
+    report_section: "Volatility targeting is the best-evidenced edge, and it is about sizing"
+
+  signal_meter:
+    title: How to read the signal meter
+    plain_english: >-
+      The meter's axis is today's gap: the model's calibrated probability of an up day minus the base rate
+      (how often the asset usually rises), in percentage points. The needle is today's gap. The five zones
+      are Sell / step aside, Reduce, Neutral, Hold / buy and Strong buy, and their edges are the thresholds
+      the paper-trading strategy really uses, drawn on the same axis, so the needle always sits in the zone
+      of the paper-trading position. The long/flat strategy has two states only (hold, or step aside when
+      the gap falls below minus its tolerance margin), so for it Reduce, Neutral and Strong buy are crossed
+      out and no "strong buy" action is invented; they exist only in the optional "sized" mode. "Sell"
+      means step aside or reduce, never short-selling. Hold / buy does not mean bullish: it can show while
+      the probability is slightly below the base rate. As small print, the percentile of today's gap among
+      the model's past out-of-sample gaps says how unusual the day is; it does not decide the zone.
+    formula: "gap_t = p_t - base_rate_t;  needle = gap_t on the axis whose zone edges are the strategy's thresholds (e.g. -m)"
+    evidence: >-
+      The probability of an up day for SPY, QQQ or BTC is almost always close to the base rate; the
+      informative part of the forecast is how far, and how reliably, it moves away from that rate.
+    caveats: >-
+      A 52% probability on SPY is a below-average day, not a bullish one. The informative part is the
+      distance from the base rate, and even that is small and unreliable.
+    sources: []
+    source_note: "The meter is this project's own design (QUANT_SPEC.md); RESEARCH_REPORT.md's Stage 5 table motivates it but cites no external paper."
+    report_section: "Integrating the findings into quant-lab, stage by stage > Stage 5 - Dashboard"
+
+  evidence_badge:
+    title: How to read the evidence badge
+    plain_english: >-
+      The badge summarises how much evidence the saved backtest gives that this model has an edge. Grey
+      "No proven edge" is the default and the most common honest answer. Amber "Weak evidence" means the
+      strategy beat volatility-targeted buy-and-hold after costs AND at least one of two things is
+      encouraging: its up/down calls beat chance (Pesaran-Timmermann), or its excess return over that
+      benchmark is statistically convincing (PSR of the excess return at least 0.95). Green "Evidence"
+      needs all five tests to pass: the up/down calls beat chance (Pesaran-Timmermann); the probabilities
+      beat the base rate (Brier skill above zero against BOTH the training base rate and the base rate
+      of the evaluation window, so the smaller of the two is used); the strategy beat volatility-targeted
+      buy-and-hold after costs; and the excess return over that benchmark stays significant after
+      deflating for the number of configurations tried, once for this asset's trials and once for all
+      trials (Deflated Sharpe Ratio of at least 0.95). The Brier-skill check uses the more conservative
+      of the two skills (a deliberately conservative choice).
+    formula: |-
+      Green  = all five pass: PT, SKILL, BEATS, DSR_X, DSR_G
+      Amber  = BEATS and (PT or PSR_X)
+      Grey   = anything else, or any number missing
+      PT = up/down calls beat chance (p < 0.05, positive)    SKILL = Brier skill > 0 (smaller of two)
+      BEATS = net Sharpe above vol-targeted buy-and-hold    PSR_X / DSR_X = excess return convincing (>= 0.95)
+      DSR_G = deflated Sharpe over all 270 trials >= 0.95
+    evidence: >-
+      The report's own conclusion is that the most likely honest outcome is that no direction model beats a
+      volatility-targeted buy-and-hold after costs; under the project's quality bar, reporting that is a
+      pass.
+    caveats: Grey means "not proven", not "proven useless"; a short out-of-sample sample has little statistical power.
+    sources:
+      - title: "statsmodels: pesaran_timmermann"
+        authors: statsmodels
+        year: null
+        url: "https://www.statsmodels.org/dev/generated/statsmodels.stats.diagnostic.pesaran_timmermann.html"
+      - title: "Bailey & Lopez de Prado 2014: the Deflated Sharpe Ratio"
+        authors: Bailey & López de Prado
+        year: 2014
+        url: "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf"
+    report_section: "Proving an edge is real takes more than one backtest"
+
+# ---------------------------------------------------------------------------------------------
+reality_check:
+
+  realistic_auc:
+    title: Realistic accuracy is barely above chance
+    plain_english: >-
+      Careful out-of-sample studies of index-level or small-universe daily direction land at roughly
+      51-56% accuracy (AUC about 0.51-0.55). If a model shows much more than that, suspect a bug before
+      believing a discovery. The report's planning assumption is an AUC of about 0.51-0.53 on the hold-out.
+    formula: ""
+    evidence: >-
+      A 2024 study found that for LSTM, GBT and random-forest index-direction classifiers accuracy "stays
+      close to chance", with profits coming from controlling exposure, not from accurate direction calls.
+      Welch and Goyal concluded that "for all practical purposes, the equity premium has not been
+      predictable".
+    caveats: ""
+    sources:
+      - title: "Welch & Goyal 2008: classic equity-premium predictors"
+        authors: Welch & Goyal
+        year: 2008
+        url: "https://nber.org/papers/w10483"
+      - title: "EmergentMind summary of Finnegan et al. 2024: daily market direction"
+        authors: Finnegan et al. (EmergentMind summary)
+        year: 2024
+        url: "https://www.emergentmind.com/open-problems/predict-daily-market-direction-remains-unsolved"
+    report_section: "Honest daily models predict risk, not direction; Index timing is a far harder problem than the headline papers solve"
+
+  cross_sectional_vs_index:
+    title: Famous ML papers solve an easier problem
+    plain_english: >-
+      The machine-learning headlines mostly come from cross-sectional stock selection: ranking hundreds of
+      stocks against each other. That cancels out the market's own move and harvests reversal across many
+      names, so the noise diversifies away. A single-asset timing model gets none of that diversification:
+      at the same hit rate it earns a far lower Sharpe.
+    formula: ""
+    evidence: >-
+      Krauss, Do and Huck earned more than 0.45% a day before costs (1992-2015) going long the 10 stocks
+      most likely to beat the median and short the 10 least likely. Fischer and Krauss reported about 54.3%
+      directional accuracy and a Sharpe of 5.8 before costs for an LSTM on the same universe.
+    caveats: Those are stock-ranking results, not index timing.
+    sources:
+      - title: "Krauss, Do & Huck 2017: ML stock selection on S&P 500 constituents"
+        authors: Krauss, Do & Huck
+        year: 2017
+        url: "https://econpapers.repec.org/RePEc:eee:ejores:v:259:y:2017:i:2:p:689-702"
+      - title: "Fischer & Krauss 2018: LSTM on S&P 500 constituents (working paper)"
+        authors: Fischer & Krauss
+        year: 2018
+        url: "https://iwf.rw.fau.de/files/2015/12/11-2017.pdf"
+    report_section: "Index timing is a far harder problem than the headline papers solve"
+
+  edges_negative_after_costs:
+    title: Even those edges went negative after about 2010
+    plain_english: >-
+      Krauss et al.'s ensemble earned an after-cost Sharpe of 6.7 in 1992-2001, but every model had negative
+      after-cost returns (-14% to -25% a year) in 2010-2015. The authors blame wider ML adoption. Bitcoin
+      looks more predictable on paper and collapses after costs: strategies that made up to 39% a month
+      before costs turned negative at 30 bp round-trip costs. Caveat: that Bitcoin figure is for trading
+      over 1- to 60-minute horizons, which trades far more often than this project's daily strategy, so
+      its relevance to daily trading is limited.
+    formula: ""
+    evidence: ""
+    caveats: ""
+    sources:
+      - title: "Krauss et al.: ML ensembles on S&P 500 constituents (working paper)"
+        authors: Krauss, Do & Huck
+        year: 2016
+        url: "https://www.iwf.rw.fau.de/files/2016/03/03-2016.pdf"
+      - title: "Jaquart, Dann & Weinhardt 2021: short-term Bitcoin prediction"
+        authors: Jaquart, Dann & Weinhardt
+        year: 2021
+        url: "https://publikationen.bibliothek.kit.edu/1000150665/149388567"
+      - title: "Annals of Operations Research: 14,919 technical rules on crypto"
+        authors: Annals of Operations Research
+        year: null
+        url: "https://link.springer.com/article/10.1007/s10479-019-03357-1"
+      - title: "Baquero 2026: synthesis on daily Bitcoin predictability"
+        authors: Baquero
+        year: 2026
+        url: "https://arxiv.org/abs/2606.00071"
+    report_section: "Index timing is a far harder problem than the headline papers solve"
+
+  post_publication_decay:
+    title: Published signals lose about 58% after publication
+    plain_english: >-
+      Across 97 published predictors, returns fall 26% out of sample and 58% after publication. Technical
+      analysis looked profitable mostly until the early 1990s. Sullivan, Timmermann and White tested 7,846
+      technical rules; the best one looked spectacular on the Dow from 1897 to 1986, but out of sample its
+      data-snooping-adjusted p-value was 0.341, and on S&P futures 0.908: no edge at all.
+    formula: ""
+    evidence: ""
+    caveats: ""
+    sources:
+      - title: "McLean & Pontiff 2016: returns of 97 published predictors"
+        authors: McLean & Pontiff
+        year: 2016
+        url: "https://academicnewsletter.sufe.edu.cn/info/359722"
+      - title: "Park & Irwin 2007: technical analysis profitability until the early 1990s"
+        authors: Park & Irwin
+        year: 2007
+        url: "https://ideas.repec.org/a/bla/jecsur/v21y2007i4p786-826.html"
+      - title: "Sullivan, Timmermann & White 1999: data-snooping-adjusted technical trading rules"
+        authors: Sullivan, Timmermann & White
+        year: 1999
+        url: "https://bashtage.github.io/kevinsheppard.com/files/teaching/mfe/advanced-econometrics/Sullivan_Timmermann_White.pdf"
+    report_section: "Index timing is a far harder problem than the headline papers solve"
+
+  holdout_power:
+    title: Why a 1-2 year hold-out cannot prove an edge
+    plain_english: >-
+      One year of daily data has very little statistical power. The standard error of an annualised Sharpe
+      ratio estimated from 252 days is about 1.0 (about 0.71 over two years and 0.45 over five). Directional
+      accuracy over 252 days has a standard error of about 3.1 percentage points, so a "54%" result is
+      consistent with anything from no skill to a large edge. Confirming a true annual Sharpe of 0.5
+      against zero at 95% confidence takes about 11 years of daily returns. The hold-out's job is to catch
+      failure, such as a collapse relative to walk-forward results, not to prove success.
+    formula: "Minimum Track Record Length formula (arXiv 2101.07217); Sharpe standard error from the PSR denominator"
+    evidence: "These are the report's own calculations from the PSR denominator."
+    caveats: "The report marks these figures as its own arithmetic."
+    sources:
+      - title: "Bernardini & de Castro 2021: Probabilistic Sharpe Ratio and Minimum Track Record Length"
+        authors: Bernardini & de Castro
+        year: 2021
+        url: "https://arxiv.org/pdf/2101.07217"
+    report_section: "Proving an edge is real takes more than one backtest"
+
+  overfitting:
+    title: What overfitting looks like
+    plain_english: >-
+      The more configurations you try, the higher the Sharpe ratio you get by luck alone. The Deflated
+      Sharpe Ratio asks whether your winner clears the Sharpe you would expect from the best of N useless
+      strategies. The report's worked example: an annual Sharpe of 1.0 over five years has a PSR of about
+      0.99 against zero, but after 100 trials the DSR falls to about 0.67, which is not significant.
+      Flexible machine-learning models overfit daily index data; Hansen showed that adding poor models can
+      push a Reality Check p-value from 10.6% to 96.3%. Warning signs are huge gaps between in-sample and
+      out-of-sample results, and accuracy far above about 56%.
+    formula: "SR0 = sqrt(Var(SR_hat_n)) * [ (1 - gamma_E) * Phi^-1(1 - 1/N) + gamma_E * Phi^-1(1 - 1/(N*e)) ]"
+    evidence: ""
+    caveats: ""
+    sources:
+      - title: "Bailey & Lopez de Prado 2014: the Deflated Sharpe Ratio"
+        authors: Bailey & López de Prado
+        year: 2014
+        url: "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf"
+      - title: "Hansen 2005: test for superior predictive ability"
+        authors: Hansen
+        year: 2005
+        url: "https://scispace.com/pdf/a-test-for-superior-predictive-ability-1fbgz05jht.pdf"
+      - title: "Harvey, Liu & Zhu 2016: the t > 3.0 hurdle"
+        authors: Harvey, Liu & Zhu
+        year: 2016
+        url: "https://www.nber.org/papers/w20592"
+    report_section: "Proving an edge is real takes more than one backtest"
+
+  significance_tests:
+    title: How to read the significance tests
+    plain_english: >-
+      Four tests answer different questions. Pesaran-Timmermann asks whether up/down calls beat chance
+      given how often the market and the model each say "up" (a model that says "up" 90% of the time can
+      show high accuracy with no skill). Diebold-Mariano compares two forecasts' losses. Hansen's SPA asks
+      whether any of the models beats buy-and-hold after accounting for having tried several. The Deflated
+      Sharpe Ratio asks whether the winner clears the luck bar for the number of configurations tried. A
+      new finding should also clear t > 3.0, not 2.0, because "most claimed research findings in financial
+      economics are likely false".
+    formula: "p* = p_y*p_z + (1-p_y)(1-p_z);  S_n = (p - p*) / sqrt(v - w) ~ N(0,1);  PSR(SR*) = Phi((SR_hat - SR*)*sqrt(n-1) / sqrt(1 - g3*SR_hat + ((g4-1)/4)*SR_hat^2))"
+    evidence: >-
+      For a strategy's mean return, t is roughly the annual Sharpe times the square root of the years. Over
+      the SPY sample that needs an annual Sharpe above about 0.6, and over BTC's 12 years above about 0.87.
+    caveats: >-
+      The 1,000-random-strategies check is a good teaching tool but does not account for how many models,
+      features and thresholds were tried before the reported one was picked; that is the DSR's job.
+    sources:
+      - title: "statsmodels: pesaran_timmermann"
+        authors: statsmodels
+        year: null
+        url: "https://www.statsmodels.org/dev/generated/statsmodels.stats.diagnostic.pesaran_timmermann.html"
+      - title: "statsmodels: diebold_mariano_test"
+        authors: statsmodels
+        year: null
+        url: "https://www.statsmodels.org/dev/generated/statsmodels.tsa.stattools.diebold_mariano_test.html"
+      - title: "Hansen 2005: test for superior predictive ability"
+        authors: Hansen
+        year: 2005
+        url: "https://scispace.com/pdf/a-test-for-superior-predictive-ability-1fbgz05jht.pdf"
+      - title: "Bailey & Lopez de Prado 2014: the Deflated Sharpe Ratio"
+        authors: Bailey & López de Prado
+        year: 2014
+        url: "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf"
+      - title: "Harvey, Liu & Zhu 2016: the t > 3.0 hurdle"
+        authors: Harvey, Liu & Zhu
+        year: 2016
+        url: "https://www.nber.org/papers/w20592"
+    report_section: "Proving an edge is real takes more than one backtest"
+
+  leverage_kelly:
+    title: Why a small edge plus leverage usually ends badly
+    plain_english: >-
+      The Kelly criterion links a probability to a bet size, but it is "extremely sensitive to errors in
+      estimated means". Betting twice Kelly gives zero growth, and half Kelly keeps 75% of the growth. The
+      report's SPY example (p = 0.53) implies roughly 4.8x leverage at full Kelly, which is absurd given
+      estimation error. Treat Kelly as a ceiling and use a fraction of it.
+    formula: "f* = (mu - r) / sigma^2 for a continuous asset;  f* = 2p - 1 for an even-money bet"
+    evidence: ""
+    caveats: ""
+    sources:
+      - title: "MacLean, Thorp & Ziemba 2010: good and bad properties of the Kelly criterion"
+        authors: MacLean, Thorp & Ziemba
+        year: 2010
+        url: "https://www.stat.berkeley.edu/~aldous/157/Papers/Good_Bad_Kelly.pdf"
+    report_section: "Volatility targeting is the best-evidenced edge, and it is about sizing"

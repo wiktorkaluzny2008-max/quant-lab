@@ -1,0 +1,72 @@
+assets:
+  - name: S&P 500
+    ticker: SPY
+    start: "1999-01-01"
+    trades_weekends: false
+  - name: Nasdaq-100
+    ticker: QQQ
+    start: "1999-01-01"
+    trades_weekends: false
+  - name: Russell 2000
+    ticker: IWM
+    start: "2000-05-26"
+    trades_weekends: false
+  - name: Bitcoin
+    ticker: BTC-USD
+    start: "2014-09-17"
+    trades_weekends: true
+# Extra feature sources. `start` is per ticker (default: earliest asset start);
+# yfinance just returns what exists, so a later start only avoids pointless
+# requests. `optional: true` means a failed download is logged as a WARNING and
+# recorded (data/extras_status.json) instead of aborting the update. Assets and
+# non-optional extras still fail loudly.
+extra_tickers:
+  - ticker: ^VIX
+    start: "1999-01-01"
+  - ticker: ^VIX3M
+    start: "2007-01-01"
+  - ticker: ^VXN
+    start: "1999-01-01"
+  # Yahoo does not serve ^RVX (checked 2026-11: "possibly delisted"). Downstream
+  # (IWM features) must fall back to ^VIX when data/^RVX.parquet is absent.
+  - ticker: ^RVX
+    start: "1999-01-01"
+    optional: true
+data_dir: data
+costs:
+  SPY: 0.0005
+  QQQ: 0.0005
+  IWM: 0.0005
+  BTC-USD: 0.0015
+threshold: 0.55
+starting_capital: 10000
+holdout_months: 24
+# PINNED hold-out start: dev data are rows with date <= this day; everything later is the final
+# hold-out (Stage 6 only). Pinned on 2026-11-06 = last data date minus 24 months. NEVER change
+# it after Stage 3 (re-deriving it from "last date - 24 months" would let new data creep into dev).
+holdout_cutoff_date: "2024-11-06"
+# Leverage simulator (what-if only, quant/leverage.py). borrow_rate: annual rate charged on the
+# borrowed part (L-1) of equity. leverage_strategy: which already-logged trial config is the
+# "chosen strategy" (fixed here, NOT picked by Sharpe, so leverage never selects anything).
+borrow_rate: 0.06
+leverage_strategy:
+  window: expanding
+  model: ensemble
+  mode: long_flat
+  vol_targeted: true
+  m_setting: adaptive
+
+# Paper trading (Stage 4, quant/paper.py + quant/run_daily.py). FAKE money, never a broker.
+# The strategy is NOT chosen here: paper trading reuses the pinned Stage 3 `leverage_strategy`
+# above (its config ID is looked up in the Stage 3 trial log), with mode = strategy_mode.
+# Paper trading is UNLEVERAGED (position is always between 0 and 1).
+# strategy_mode: long_flat (default) | default_long | sized
+#   sized: position = clip(lambda*(p - base_rate)/scale * sigma_target/sigma_hat, 0, 1), with a
+#   no-trade band (a new position is only taken if it differs from the current one by >= band).
+# starting_capital: a number (same for every asset) or a mapping ticker -> amount.
+# Changing anything here after the ledger has started is refused (it would mix two strategies).
+paper_trading:
+  starting_capital: 10000
+  strategy_mode: long_flat
+  sized_lambda: 0.25     # allowed range 0.25 - 0.5 (fractional Kelly)
+  sized_band: 0.1
