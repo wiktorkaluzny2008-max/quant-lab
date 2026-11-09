@@ -15,6 +15,7 @@ dependencies = [
     "plotly",
     "exchange-calendars>=4.13.2",
     "arch>=8.0.0",
+    "ccxt>=4.5.92",
 ]
 
 [dependency-groups]

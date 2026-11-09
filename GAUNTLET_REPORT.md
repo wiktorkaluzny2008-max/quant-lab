@@ -261,3 +261,51 @@ The real hold-out is now run once.
 **Post-run documentation check (Statistical honesty critic, not a new gauntlet round; results frozen): PASS.** Every number in the README results section and in this Summary was recomputed from the saved hold-out files and matched (Sharpe, Lo CIs, Wilson, PT, Brier skills, Jobson-Korkie/Memmel SEs, the QQQ paired Brier CI [0.0004, 0.0034], DSRs, SPA p-values, t-statistics). The suspected BTC Brier "swap" is a deliberate column reorder in the markdown (eval base first for BTC), not an error. The verdict rule applied by hand gives the same per-asset and headline verdicts. Freeze verified: marker `done`, all hashes match PROGRESS.md, no `HOLDOUT_FAILED_*` files. One overclaim in the Summary ("nothing beat vol-targeted buy-and-hold") was corrected to "significantly".
 
 Test-only follow-up after the run (2026-11-09, lead): `test_guard_blocks_run_final_with_the_real_config` asserted that `data/results/holdout/` did not exist, true only before the real run; it now asserts the folder is byte-identical before and after the test. No production code, config or result file changed (`--verify-preregistration` still matches). Final suite: `uv run pytest -W error -q` 883 passed, 0 failed.
+
+
+## Stage 7 data (7a universe, 7c hourly crypto, 7d FRED) — 2026-11-09
+Scope of this goal: DATA only (no strategies, backtests, trials or hold-out evaluation). New code lives in `quant/stage7/` with `config_stage7.yaml` so the Stage 6 pre-registered hashes of `config.yaml` and `quant/*.py` stay valid. **Pre-registration note (as stated by Wiktor, a claim, not verifiable from this repo):** the Stage 7 strategies were written on 2026-11-07 in a separate planning chat; the spec reached the repo on 2026-11-09, after Stage 6 ran. For the portfolio the Stage 6 hold-out is therefore a **partially seen hold-out**.
+
+### Round 1 (final round; every critic PASS in the same round)
+Builders: three in parallel (7a, 7c, 7d), then the lead ran the full suite (954 passed) before the gauntlet. Critics were fresh agents that read the code and ran commands.
+- **Leakage auditor: PASS.** Appended/mutated future hourly bars, D+1 00:00 bars and future FRED observations at several cut dates: every earlier row of rv_hourly, ret_6h, ret_24h, vol_concentration, har_rv_forecast, asof_macro and regime_context was bit-identical. HAR-RV recomputed independently (full float precision). FRED availability = next NYSE session verified over weekends and holidays (Memorial Day, July 4th, Christmas, New Year) and for the 7-day crypto calendar. Dev-only defaults and the cutoff boundary hold; no default path touches post-cutoff rows.
+- **Statistical honesty critic: PASS.** Hold-out untouched (`--verify-preregistration` passes; Stage 6 files and results unchanged). Documentation matches the code (48h gap limit, short BAMLH0A0HYM2 and T10YIE histories, warm-ups, USDT note, survivorship note, pre-registration wording). Bad inputs are rejected, not repaired. Realised vol, 6h/24h returns, Herfindahl, HAR-RV and the risk-free/borrowing arithmetic recomputed independently and matched.
+- **Code + test critic: PASS.** `uv lock --check` and `uv sync --frozen` consistent; 954 passed (883 old + 71 new), 0 failed. Mutation testing: 43 mutations, 39 killed. Atomic writes, idempotent re-runs, one-line ERROR + exit 1 on the three CLIs, no secrets or absolute paths.
+- **Dashboard critic: PASS.** No dashboard file changed; all 7 pages load with 0 exceptions; disclaimer visible; none of the new files are picked up; `run_daily --dry-run` exit 0.
+
+### Non-blocking observations (recorded, deliberately NOT fixed so the PASSed code stays the code that was audited)
+- Mutation survivors (4, non-critical): the "high/low/middling" credit-spread wording boundary; the 6-hour overlap re-fetch and `keep="last"` in the hourly incremental update are not asserted on revised bars; `config.cost_for(..., stress=True)` is untested and has no caller yet (the portfolio goal will use it).
+- `regime_context` loads hold-out FRED data if asked for a post-cutoff date (by design, for live use); `update_universe` returns full frames including hold-out rows (research code should go through `load_universe`); `daily_features` inherits the dev-only default from `load_hourly`.
+- `hourly.update_asset`: a transient Binance outage on existing data raises the "refusing to mix exchanges" message (misleading wording, original cause is included); `hourly` `status.json` is written non-atomically; `universe.main()` does not catch config-file errors (traceback instead of one ERROR line).
+- BAMLH0A0HYM2 history starts 2023-11-10 (about one year of development data); the "since 2023" wording of its regime note rests on roughly one year.
+- Refresh behaviour: newly downloaded values replace stored ones for overlapping dates (FRED and hourly), and `update_universe` re-fetched the last days of SPY/QQQ/IWM/BTC-USD, rewriting those four price files (not covered by the freeze manifest; Stage 3-6 results were not recomputed).
+Status of every issue above: none blocks a critic's PASS; they stay open as minor "unresolved" items for the later Stage 7 goals.
+
+### Start dates (development rows; `eligible_from` = first date + 252 rows for ETFs, 365 for crypto)
+| Ticker | Group | First date | Eligible from | Rows (dev) |
+|---|---|---|---|---|
+| SPY | us_equity | 1999-01-04 | 2000-01-03 | 6504 |
+| QQQ | us_equity | 1999-03-10 | 2000-03-08 | 6459 |
+| IWM | us_equity | 2000-05-26 | 2001-05-29 | 6151 |
+| XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB | us_sector | 1998-12-22 | 1999-12-22 | 6511 each |
+| XLRE | us_sector | 2015-10-08 | 2016-10-07 | 2286 |
+| XLC | us_sector | 2018-06-19 | 2019-06-20 | 1608 |
+| EFA | international | 2001-08-27 | 2002-09-03 | 5836 |
+| EEM | international | 2003-04-14 | 2004-04-14 | 5430 |
+| EWJ | international | 1999-01-04 | 2000-01-03 | 6504 |
+| VGK | international | 2005-03-10 | 2006-03-10 | 4950 |
+| SHY, IEF, TLT, LQD | bonds | 2002-07-30 | 2003-07-30 | 5608 each |
+| TIP | bonds | 2003-12-05 | 2004-12-07 | 5266 |
+| HYG | bonds | 2007-04-11 | 2008-04-10 | 4426 |
+| GLD | real_assets | 2004-11-18 | 2005-11-17 | 5026 |
+| DBC | real_assets | 2006-02-06 | 2007-02-07 | 4721 |
+| VNQ | real_assets | 2004-09-29 | 2005-09-28 | 5062 |
+| UUP | dollar | 2007-03-01 | 2008-02-29 | 4454 |
+| BTC-USD | crypto | 2014-09-17 | 2015-09-17 | 3704 |
+| ETH-USD | crypto | 2017-11-09 | 2018-11-09 | 2555 |
+| Hourly BTC/USDT, ETH/USDT (Binance) | crypto | 2017-08-17 04:00 UTC | n/a | 63,204 bars each (to 2024-11-06 23:00) |
+| FRED DTB3 / DGS10 / T10Y2Y / DFF | macro | 1990-01-02 (DFF 1990-01-01) | next NYSE session after the observation | 8720 / 8720 / 8720 / 12729 |
+| FRED T10YIE | macro | 2003-01-02 | same | 5468 |
+| FRED BAMLH0A0HYM2 | macro | 2023-11-10 | same | 260 |
+
+Final check: `uv run pytest -W error -q` = **954 passed, 0 failed** (re-run after the last code change; only documentation was edited afterwards).

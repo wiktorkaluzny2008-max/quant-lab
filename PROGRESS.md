@@ -390,3 +390,52 @@ See the dry-run numbers in the report of this round; they come from development 
 
 ### Stage 6 complete (2026-11-09)
 The hold-out (decision days 2024-11-06 to 2026-11-05) was evaluated once with the pinned ensemble / long-flat / vol-targeted / adaptive-margin strategy. Result: no evidence of an edge on any asset (strategy Sharpe SPY 0.60, QQQ 0.54, IWM 0.68, BTC-USD -0.13 against buy-and-hold 0.81 / 0.72 / 0.50 / 0.22; every 95% interval is about plus or minus 1.4, so a 24-month hold-out can only catch failure, not prove success). Nothing was changed after the run. Where things are: results in `data/results/holdout/` (see `holdout_results.md`), summary at the top of `GAUNTLET_REPORT.md`, how to use everything in `README.md`. If you ever want to scrap the paper-trading ledger and start again, that is a Stage 4 decision, not a hold-out one: the hold-out must never be re-run to look for a better answer.
+
+
+---
+
+# Stage 7 — Multi-asset portfolio and extra data
+
+## Stage 7 data goal (parts 7a, 7c, 7d): scope and plan (2026-11-09)
+Stage 7 is split into goals. This goal builds the DATA only: **7a** the wider universe (30 assets), **7c** hourly BTC/ETH data from `ccxt` plus the daily features made from it, and **7d** FRED macro data. The portfolio strategies (7b), the Portfolio dashboard page and the portfolio paper-trading ledger (7e) and the Stage 7 verdict (7f) come in later goals. The "test the hourly features in the BTC model, logged as trials" experiments from 7c and the macro-feature experiments from 7d also wait: they need the backtest and trial log, so they belong with 7b.
+
+Plan (small, independently checkable tasks, each with its own tests):
+1. `quant/stage7/universe.py` - download/validate the 30 ETFs and coins, dev-only loader, warm-up eligibility, start-date table.
+2. `quant/stage7/hourly.py` - hourly OHLCV via `ccxt`, validation, alignment to the daily close, realised volatility, 6h/24h returns, volume concentration, HAR-RV.
+3. `quant/stage7/macro.py` - six FRED series, next-trading-day availability rule, risk-free and borrowing-rate helpers, plain-English regime context.
+Then the four critics (leakage, statistical honesty, code + test, and the dashboard critic only where something is shown; no dashboard change in this goal).
+
+## Decisions (beginner language)
+- **Where the pre-registration claim comes from (as Wiktor asked me to record it).** The Stage 7 strategies were written on 2026-11-07 in a separate planning chat (a claim, not verifiable from this repo); the spec reached the repo on 2026-11-09, after Stage 6 ran. So for the portfolio the Stage 6 hold-out is a **partially seen hold-out** (we already know how SPY, QQQ, IWM and BTC did in it).
+- **Stage 6 stays reproducible.** The Stage 6 code and config can be recovered exactly from commit `58ce99b`. Stage 7 only ADDS new files; existing files change only in backward-compatible ways. A new freeze manifest is recorded before the Stage 7 hold-out runs.
+- **FRED rates only for new Stage 7 outputs.** The four-asset hold-out is not re-run and Stage 3-6 numbers are not recomputed. The FRED risk-free and borrowing rates exist as helpers for Stage 7 outputs.
+- **New files live in a sub-package `quant/stage7/` with their own `config_stage7.yaml`** (not in `quant/*.py` / `config.yaml` as the spec's folder sketch shows). Why: Stage 6 pre-registered the SHA-256 of `config.yaml` and of every `quant/*.py` file, and a test checks them. Putting Stage 7 in a sub-folder keeps those hashes (and the proof that nothing changed after the hold-out) valid. The hold-out cutoff date is not repeated in the new file: it is always read from `config.yaml`.
+- **`ccxt` added to the dependencies** (`uv add ccxt`). This re-resolved `uv.lock`: besides adding ccxt's own packages it moved a few networking helpers (`yfinance` 1.8.0 to 1.7.0, `curl-cffi`, `cffi`, `idna`, `charset-normalizer`, `pycparser`). Numbers libraries (numpy, pandas, scikit-learn, lightgbm) did not change. Stored prices are unaffected; the full test suite is re-run to confirm.
+- **No hold-out data is used in this goal.** Files on disk contain rows after the cutoff (needed later for the forward test and for the one hold-out evaluation), but every loader returns development rows only unless called with `include_holdout=True`, and nothing in this goal computes a statistic on later rows.
+- **Survivorship note (for the Reality check page later).** The ETF list was chosen today, so it only has ETFs and coins that still exist. That bias is small for broad ETFs (much smaller than for individual stocks), and no more cryptos are added for the same reason.
+
+## Stage 7 data: what the builders decided (round 0, before the critics)
+**7a Universe (`quant/stage7/universe.py`)**
+- All 30 tickers passed the SAME strict check as SPY and Bitcoin (no missing trading days, no duplicates, no zero or negative prices); Stage 1's validation was not loosened for the new ETFs.
+- The updater tries all 30 and then reports every failure by name, so one Yahoo hiccup can never leave a half-updated universe silently.
+- An asset joins a backtest only after its warm-up: its 253rd row for ETFs (252 rows of history, enough for the 12-month signal), its 366th row for crypto. Nothing is back-filled. XLRE is eligible from 2016-10-07, XLC from 2019-06-20, ETH-USD from 2018-11-09.
+- Loaders return development rows only (up to 2024-11-06) unless `include_holdout=True`.
+- `data/` is about 35 MB after all Stage 7 data downloads (universe about 27 MB, hourly about 7 MB, FRED about 0.5 MB; the spec allows about 50 MB).
+- Side effect to know about: refreshing the whole universe also re-fetched the last days of SPY, QQQ, IWM and BTC-USD and rewrote those four price files (Yahoo can revise adjusted prices). The Stage 6 freeze manifest does not cover price files, and no Stage 3-6 result was recomputed.
+- For FRED and hourly data, newly downloaded values replace stored ones for overlapping dates (so source revisions are picked up).
+
+**7c Hourly crypto (`quant/stage7/hourly.py`)**
+- Source: Binance via `ccxt` public endpoints, no account or key. Binance quotes BTC/USDT and ETH/USDT; USDT trades close to USD but its prices are not identical to Yahoo's USD prices. Hourly history starts 2017-08-17.
+- One exchange per file: mixing exchanges would create fake price jumps, so the code refuses (a Binance block after Binance data exists makes the update fail loudly instead of silently switching).
+- Only completed hourly bars are stored (an unfinished hour keeps changing; using it would be peeking).
+- Gaps are kept, never filled: Binance really was down at times (28 gaps per coin, 27 of them 1 to 10 hours, one of 33 hours on 2018-02-08/09). Days with a missing hour get NaN for the hourly-volatility and volume-concentration features. **Deviation from the brief:** the allowed gap size is 48 hours, not 24, because the real 33-hour outage would otherwise reject the whole history; longer holes are still a hard error. This is a constant (`MAX_GAP_WARN_HOURS`) in `hourly.py`, and it was chosen from the existing data's gap list, not from any returns.
+- Alignment to the Yahoo daily close: the daily bar for day D is known at 00:00 UTC on D+1, so the daily row for D uses only hourly bars that opened 00:00 to 23:00 on D. The 00:00 bar of D+1 is never used.
+- Features: realised volatility from hourly returns, 6-hour and 24-hour returns before the close, volume concentration (Herfindahl index), and a HAR-RV forecast (Corsi 2009; log version, refit every 21 calendar-ordinal days on already-known outcomes only, at least 250 training examples, median-type forecast with no bias correction).
+- The "test these features in the BTC model and portfolio volatility targeting, logged as trials" step is NOT part of this goal; it waits for 7b.
+
+**7d FRED macro (`quant/stage7/macro.py`)**
+- A value dated t is treated as known only from the NEXT NYSE session after t. A Friday value is usable on Monday; crypto rows on Saturday and Sunday still see Thursday's value. One rule for every asset, so crypto gets no hidden timing advantage.
+- Missing values (shown as "." on holidays) are dropped in storage and carried forward only at read time inside the lookahead-safe join.
+- **Short histories (real findings):** the high-yield credit spread `BAMLH0A0HYM2` only starts on 2023-11-10 (FRED's licence shortens it to about 3 years), which gives only about one year of development-period data, so it cannot support any development-period feature or backtest; the 10-year breakeven `T10YIE` starts 2003-01-02. Nothing is back-filled.
+- The download sends no custom User-Agent, because FRED silently hangs requests that send a browser-like or custom one (a quirk of their site).
+- Helpers for risk-free rate (`DTB3`), borrowing rate (fed funds + 1.5%) and plain-English regime context exist but are wired into NO Stage 3-6 code (the four-asset hold-out already ran).

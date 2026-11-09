@@ -1,0 +1,64 @@
+# Stage 7 settings (QUANT_SPEC.md "Stage 7"). Kept in its OWN file on purpose: Stage 6 pre-registered
+# the SHA-256 of config.yaml and quant/*.py, so Stage 7 adds files instead of editing those.
+# The pinned hold-out cutoff is NOT repeated here: it is always read from config.yaml.
+data_dir: data            # same folder as Stages 1-6 (hourly/ and fred/ are sub-folders)
+
+# 7a universe. `start` is only the date we ASK Yahoo from; each asset's real first date is whatever
+# Yahoo returns and nothing is back-filled. warmup: an asset may enter a backtest only after
+# `warmup_days` rows (12 months of signals). Group names feed the 25% per-asset / 10% crypto caps.
+warmup_days: {etf: 252, crypto: 365}
+costs: {etf: 0.0005, crypto: 0.0015, crypto_stress: 0.006}
+universe:
+  - {ticker: SPY, name: S&P 500, group: us_equity, start: "1999-01-01", trades_weekends: false}
+  - {ticker: QQQ, name: Nasdaq-100, group: us_equity, start: "1999-01-01", trades_weekends: false}
+  - {ticker: IWM, name: Russell 2000, group: us_equity, start: "2000-05-26", trades_weekends: false}
+  - {ticker: XLK, name: Technology sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLF, name: Financials sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLE, name: Energy sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLV, name: Health care sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLI, name: Industrials sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLY, name: Consumer discretionary sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLP, name: Consumer staples sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLU, name: Utilities sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLB, name: Materials sector, group: us_sector, start: "1998-12-01", trades_weekends: false}
+  - {ticker: XLRE, name: Real estate sector, group: us_sector, start: "2015-09-01", trades_weekends: false}
+  - {ticker: XLC, name: Communication services sector, group: us_sector, start: "2018-05-01", trades_weekends: false}
+  - {ticker: EFA, name: Developed ex-US, group: international, start: "2001-01-01", trades_weekends: false}
+  - {ticker: EEM, name: Emerging markets, group: international, start: "2003-01-01", trades_weekends: false}
+  - {ticker: EWJ, name: Japan, group: international, start: "1999-01-01", trades_weekends: false}
+  - {ticker: VGK, name: Europe, group: international, start: "2005-01-01", trades_weekends: false}
+  - {ticker: SHY, name: 1-3y Treasuries, group: bonds, start: "2002-01-01", trades_weekends: false}
+  - {ticker: IEF, name: 7-10y Treasuries, group: bonds, start: "2002-01-01", trades_weekends: false}
+  - {ticker: TLT, name: 20y+ Treasuries, group: bonds, start: "2002-01-01", trades_weekends: false}
+  - {ticker: TIP, name: TIPS, group: bonds, start: "2003-01-01", trades_weekends: false}
+  - {ticker: LQD, name: Investment-grade credit, group: bonds, start: "2002-01-01", trades_weekends: false}
+  - {ticker: HYG, name: High-yield credit, group: bonds, start: "2007-01-01", trades_weekends: false}
+  - {ticker: GLD, name: Gold, group: real_assets, start: "2004-01-01", trades_weekends: false}
+  - {ticker: DBC, name: Commodities, group: real_assets, start: "2006-01-01", trades_weekends: false}
+  - {ticker: VNQ, name: US REITs, group: real_assets, start: "2004-01-01", trades_weekends: false}
+  - {ticker: UUP, name: US dollar index fund, group: dollar, start: "2007-01-01", trades_weekends: false}
+  - {ticker: BTC-USD, name: Bitcoin, group: crypto, start: "2014-09-17", trades_weekends: true}
+  - {ticker: ETH-USD, name: Ethereum, group: crypto, start: "2017-11-01", trades_weekends: true}
+
+# 7c hourly crypto data (ccxt public endpoints, no key). USDT prices differ slightly from USD.
+hourly:
+  start: "2017-08-17"
+  exchange: binance
+  fallbacks: [kraken, coinbase]
+  quote: {binance: USDT, kraken: USD, coinbase: USD}
+  assets: {BTC-USD: BTC, ETH-USD: ETH}
+  page_limit: 1000
+  stale_tolerance_hours: 2
+
+# 7d FRED daily series (public CSV, no key). Observation date t is usable only from the NEXT NYSE session.
+fred:
+  base_url: "https://fred.stlouisfed.org/graph/fredgraph.csv"
+  start: "1990-01-01"
+  borrow_spread: 0.015            # leverage borrowing rate = fed funds + 1.5%
+  series:
+    DTB3: {name: 3-month T-bill (percent), min: -1, max: 25}
+    DFF: {name: Effective fed funds rate (percent), min: -1, max: 25}
+    DGS10: {name: 10-year Treasury yield (percent), min: -1, max: 25}
+    T10Y2Y: {name: 10y minus 2y spread (percentage points), min: -5, max: 5}
+    BAMLH0A0HYM2: {name: High-yield credit spread (percentage points), min: 0, max: 30}
+    T10YIE: {name: 10-year breakeven inflation (percent), min: -2, max: 6}
