@@ -1,5 +1,19 @@
 # GAUNTLET REPORT
 
+## Summary (final; written after the single hold-out evaluation)
+**Verdict: no evidence of an edge.**
+
+| Item | Result |
+|---|---|
+| Total trials | 270 distinct configurations (360 logged config ids including identical duplicates); per asset: SPY 56, QQQ 54, IWM 54, BTC-USD 106 |
+| Deflated Sharpe Ratio of the chosen strategy (global, 270 trials) | SPY 0.017, QQQ 0.057, IWM 0.0003, BTC-USD 0.000 (needs 0.95). Asset-scoped DSR is higher (SPY 0.993, QQQ 0.999, IWM 0.730, BTC-USD 0.000) but is a test against zero; the excess-over-vol-targeted-buy-and-hold DSR is 0.000 / 0.001 / 0.0001 / 0.011 |
+| Hansen SPA p-value (vs buy-and-hold / vs vol-targeted buy-and-hold) | SPY 0.998 / 0.894, QQQ 0.940 / 0.707, IWM 0.976 / 0.709, BTC-USD 0.933 / 0.937 (nothing near 0.05) |
+| Clears t > 3? | Strategy alone: SPY 3.24 and QQQ 3.76 yes, IWM 1.70 and BTC-USD -0.88 no. But buy-and-hold also clears it (SPY 3.25, QQQ 3.64) and the strategy's excess t over vol-targeted buy-and-hold is negative for all four (-2.01, -0.83, -1.35, -1.42), so t > 3 is not evidence of an edge |
+| Hold-out (2024-11-06 to 2026-11-05, evaluated once) | Strategy Sharpe SPY 0.60, QQQ 0.54, IWM 0.68, BTC-USD -0.13 vs buy-and-hold 0.81 / 0.72 / 0.50 / 0.22; all 95% CIs about plus or minus 1.4 (a 24-month hold-out can only catch failure). QQQ raised a pre-registered failure flag (Brier significantly worse than the base rate). No model, feature or setting was changed after the run |
+| Unresolved critic issues | Stage 3: four minor documentation items (see Stage 3 round 4). Stage 5: test gap for the drawn gauge needle when the sized-mode no-trade band clamps it, a few cosmetic dashboard items, two dead source links copied from RESEARCH_REPORT.md (see Stage 5 post-cap fixes). Stage 6: the BTC-USD table in `holdout_results.md` lists the Brier-skill columns eval-base first, the ETF tables train-base first (values are correct; presentation only); QQQ's Brier failure flag is one of 12 pre-registered flag tests with no multiplicity adjustment; non-blocking items from round 3 (no end-to-end test of failure flags reaching the verdict in `build_summary`, a traceback instead of a clean error when lightgbm cannot import during preflight or a marker file holds non-dict JSON, holdout.py and uv.lock only recorded, not pinned) |
+
+Honest reading: the hold-out did not change the verdict. The pre-registered rule already gave "no evidence of an edge" from the development numbers, and the hold-out could only keep or downgrade it. Nothing beat vol-targeted buy-and-hold significantly in development or in the hold-out (IWM was ahead as a point estimate, 0.68 vs 0.42, but the difference is far inside the noise and reverses with a one-day delay).
+
 ## Stage 1 — Data
 Critics for this stage: Code + test critic (per spec table).
 
@@ -209,3 +223,41 @@ Not fixed (recorded as unresolved):
 1. Test gap: drawn gauge needle not pinned to `meter.needle` when clamped (sized mode only).
 2. Cosmetic: the "0 / typical" tick is unlabelled on the SPY and QQQ gauges and the gap value is not printed on the dial; the active zone chip is not visually distinct; the dial subtitle repeats the label; the How-it-works badge block shows the constant name `FADED_NOTE` (quant/explain.py ~388, pre-existing); the sidebar is open by default at 420px.
 3. `is_config_error` also matches any FileNotFoundError/ValueError whose text mentions config.yaml (wording only).
+
+## Stage 6 — Wrap-up
+Critics for this stage: Leakage auditor, Statistical honesty critic, Code + test critic. The real hold-out can be evaluated only once, so the gauntlet is run in two parts: the one-shot harness (`quant/holdout.py`) is reviewed BEFORE the real run on a pseudo hold-out made from the last 24 months of development data ("pre-run" rounds), then the real run happens once, then the results, report and README are reviewed ("post-run" round). Critics never run `--run` and never read hold-out rows.
+
+### Round 1 (pre-run review of the harness)
+| Critic | Verdict | Reason |
+|---|---|---|
+| Leakage auditor | **PASS** (4 hardening notes) | No leakage by code reading and mutants: training slice ends 2 rows before each block, calibration/imputers/base rate/sigma_target/adaptive-m history use only earlier data, the cutoff label never enters training, window definition double-counts and skips nothing; equivalence with saved Stage 3 results holds. Notes: no assertion on the scored dates, marker written before preflight (a lightgbm import problem would burn the shot), `--config` could sidestep the guard, features cannot be re-verified without reading hold-out rows. |
+| Statistical honesty | **FAIL** (narrow) | All statistics correct (Sharpe CI, Wilson, PT with base rates, Brier skill, Jobson-Korkie/Memmel SE, power note, pinned config ID, costs). Defects: (1) `--config` with `--run` could bypass the one-shot guard (different data_dir/cutoff/strategy); (2) no pre-registered interpretation rule or verdict mapping before seeing hold-out numbers; (3) repeat runs only blocked by hand-editable file state, and the report did not flag a repeat attempt. |
+| Code + test | **PASS** (test gaps) | Full-run guard scenarios in copies (KeyboardInterrupt, manifest tamper of quant files/config/uv.lock/results/features/ledger, markers in every state, short data does not burn the shot) all behave; 46 of 53 mutants killed; README commands work. Gaps: BTC weekend-hole coverage, Wilson hit-count rounding, climatology eval-base log-loss skill, non-expanding-window refusal. |
+
+Round 1 result: not every critic passed. All findings go to a builder (done: `--run` refuses `--config`, pinned-constant assertions, config.yaml SHA-256 pre-registered in code and PROGRESS.md, interpretation rule `hold_out_flags()` / `final_verdict()` pre-registered, repeat-attempt flag in the report, scored-window and contiguity assertions, preflight before the marker, new tests; 829 tests pass), then the harness is re-reviewed in round 2.
+
+### Round 2 (pre-run review of the harness after the round-1 fixes)
+| Critic | Verdict | Reason |
+|---|---|---|
+| Leakage auditor | **PASS** (notes) | Round-1 fixes hold under mutation (dropped/shifted months, history gaps, unblanked last label all raise; gap 0/+3, full-sample sigma/base rate caught by the real-data replay). Full `run_final` rehearsed on a pseudo window in a copy: completes with freeze verified. `--config` bypass closed; verdict code feeds nothing back. Notes: history contiguity only checks the last date (a mid-history gap is not detected), only config.yaml SHA pre-registered (not the code), adaptive-m peek caught by the BTC replay only. |
+| Statistical honesty | **FAIL** (narrow) | Round-1 defects 1 and 3 fixed; recomputations match. (D1) the pre-registered "weak evidence" band is gameable: passing the strategy's own t > 3 (which buy-and-hold also passes, SPY 3.25, QQQ 3.64) alone gives "weak evidence", so SPY/QQQ would read "weak evidence" although every baseline-relative measure (excess t negative, SPA p 0.7-1.0, DSR far below 0.95) points away from an edge; (D2) the excess DSR is asset-scoped (54-106 trials) while the strategy DSR is global (270) and SPA is family-level: not disclosed in PROGRESS.md/report reasons; (D3) no pre-registered rule for turning four per-asset verdicts into the one-line headline. |
+| Code + test | **FAIL** (narrow) | Harness code correct; all guard, tamper, KeyboardInterrupt and preflight scenarios pass in copies. But 16 of 56 mutants survive, mostly the pre-registered thresholds: `t_x >= 3`, SPA 0.05/0.10 and `<=`, PT `<=`, Brier `>= 0`, `any_failure` combinations, the failure-signal reason line; preflight does not test contiguity/shape (a failure would burn the shot); `leverage_strategy` extra keys and `project_root` pins untested. |
+
+Round 2 result: not every critic passed. Fix list to a builder, then round 3 (the last allowed round).
+
+### Round 3 (final pre-run review of the harness, after the round-2 fixes; 883 tests pass)
+| Critic | Verdict | Reason |
+|---|---|---|
+| Leakage auditor | **PASS** (notes) | 15 mutants (adaptive-m peeks incl. +1, gap 0/+3, full-sample sigma/base rate, dropped month, mid-history gap, cutoff-day history, unblanked last label) all caught; `run_final` rehearsed end to end on a pseudo window; real-run path scores exactly [2024-11-06, 2026-11-05]; no new selection path from the verdict code. Notes: holdout.py not pre-registered (its hash is recorded in the marker; also written in PROGRESS.md before the run), preflight does not catch an extra non-session row or a missing cutoff-day row (the lead checked the real data by dates only: both clean, 502 sessions per ETF and 731 days for BTC in [2024-11-06, 2026-11-06]), +1 peek caught by the synthetic test only. |
+| Statistical honesty | **PASS** | D1-D3 fixed: "weak evidence" now needs a baseline test; scopes disclosed (excess DSR asset-scoped 54-106 trials vs global 270; SPA family-level; t>3 also passed by buy-and-hold); headline = weakest asset. Applied to the development numbers the pre-registered rule gives "no evidence of an edge" for all four assets, so the hold-out can only keep or confirm it. All dry-run metrics recomputed (PT differs ~1e-3, a variance-formula variant). |
+| Code + test | **PASS** (narrow) | 114 mutants of holdout.py: 103 killed (all thresholds, flags, preflight, pins, marker, manifest); full-run scenarios (success, KeyboardInterrupt, 11 tamper types, markers in every state, preflight failures not burning the shot) pass; README accurate. Open (non-blocking): no end-to-end test proves hold-out failure flags reach the real verdict in `build_summary` (lead verified by reading: `holdout.py` ~708-712 passes the flags to `final_verdict`); a non-dict JSON marker raises an AttributeError (still refuses); a lightgbm import failure in preflight shows a traceback (shot not burnt); uv.lock/pyproject only compared before/after, holdout.py not pinned. |
+
+**Pre-run result: PASS from every critic in the same round (round 3).** holdout.py SHA-256 before the run: `ee456502ffdeab3ae71f68d0556aaa0c3050d611d7d11302511139bebefb40e7`.
+The real hold-out is now run once.
+
+
+### Hold-out run (after the round-3 PASS)
+`quant.holdout --run --confirm-single-final-evaluation` ran once: marker status `done`, freeze manifest re-verified (no code, config, result or data file changed). Outputs: `data/results/holdout/`. Per-asset and headline verdict: no evidence of an edge. The round-3 PASS from every critic was recorded before the run. 
+**Post-run documentation check (Statistical honesty critic, not a new gauntlet round; results frozen): PASS.** Every number in the README results section and in this Summary was recomputed from the saved hold-out files and matched (Sharpe, Lo CIs, Wilson, PT, Brier skills, Jobson-Korkie/Memmel SEs, the QQQ paired Brier CI [0.0004, 0.0034], DSRs, SPA p-values, t-statistics). The suspected BTC Brier "swap" is a deliberate column reorder in the markdown (eval base first for BTC), not an error. The verdict rule applied by hand gives the same per-asset and headline verdicts. Freeze verified: marker `done`, all hashes match PROGRESS.md, no `HOLDOUT_FAILED_*` files. One overclaim in the Summary ("nothing beat vol-targeted buy-and-hold") was corrected to "significantly".
+
+Test-only follow-up after the run (2026-11-09, lead): `test_guard_blocks_run_final_with_the_real_config` asserted that `data/results/holdout/` did not exist, true only before the real run; it now asserts the folder is byte-identical before and after the test. No production code, config or result file changed (`--verify-preregistration` still matches). Final suite: `uv run pytest -W error -q` 883 passed, 0 failed.

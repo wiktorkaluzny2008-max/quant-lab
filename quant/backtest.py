@@ -173,7 +173,13 @@ def training_slice(s: int, window: str, bt: BTConfig):
 
 
 def walk_forward(dev, models, bt: BTConfig, cutoff, window="expanding", ann=252.0,
-                 importance=True) -> WalkForward:
+                 importance=True, first_date=None) -> WalkForward:
+    """Walk-forward over every calendar-month block of ``dev``.
+
+    ``first_date`` (default None = all blocks, the Stage 3 behaviour) skips blocks that END before
+    that date (used by the Stage 6 hold-out harness, quant/holdout.py, to predict only the
+    blocks that contain hold-out days; every block it does predict is trained exactly as
+    before: expanding window, rows <= s-2)."""
     _assert_dev(dev, cutoff)
     require_models(models)
     if window not in T.WINDOWS:
@@ -188,6 +194,8 @@ def walk_forward(dev, models, bt: BTConfig, cutoff, window="expanding", ann=252.
     use_ens = len(models) > 1
     names = [*models, *(["ensemble"] if use_ens else [])]
     for s, e in month_blocks(dates):
+        if first_date is not None and dates[e - 1] < pd.Timestamp(first_date):
+            continue
         sl = training_slice(s, window, bt)
         if sl is None:
             continue
