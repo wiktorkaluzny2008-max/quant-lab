@@ -1,6 +1,6 @@
 # Quant Lab — Build Spec
 
-Build a personal quant research tool for **S&P 500, Nasdaq-100, Russell 2000 small caps and Bitcoin** that does three things:
+Build a personal quant research tool for **S&P 500, Nasdaq-100, Russell 2000 small caps and Bitcoin** (extended to a ~30-asset portfolio in Stage 7) that does three things:
 1. **Research + backtesting** — daily ML/statistical models tested honestly against buy-and-hold.
 2. **Daily prediction dashboard** — today's signal for each asset with a probability.
 3. **Paper trading** — simulated trades with fake money, updated each day.
@@ -19,7 +19,7 @@ Put this file and `RESEARCH_REPORT.md` in a folder called `quant-lab`, open Clau
 
 **Option A — whole build in one go**
 ```
-/goal Every stage in QUANT_SPEC.md is built using the Gauntlet Loop it describes; `uv run pytest` passes with 0 failures; `uv run python -m quant.run_daily` exits with code 0; `uv run streamlit run app/dashboard.py` starts without errors; and GAUNTLET_REPORT.md shows a final PASS from every critic for stages 1 to 6. Print the test summary and the final critic verdicts at the end.
+/goal Every stage in QUANT_SPEC.md is built using the Gauntlet Loop it describes; `uv run pytest` passes with 0 failures; `uv run python -m quant.run_daily` exits with code 0; `uv run streamlit run app/dashboard.py` starts without errors; and GAUNTLET_REPORT.md shows a final PASS from every critic for stages 1 to 7. Print the test summary and the final critic verdicts at the end.
 ```
 
 **Option B — one stage at a time** (slower, but you can check each stage before moving on)
@@ -70,7 +70,7 @@ You are the **lead agent**. For each stage:
 
 ## Tech stack
 - Python **3.12**, pinned in `pyproject.toml` and `.python-version`; environment managed with **uv**
-- pandas, numpy, yfinance, scikit-learn, lightgbm, statsmodels, pyarrow, **arch** (for Hansen's SPA test), exchange_calendars
+- pandas, numpy, yfinance, scikit-learn, lightgbm, statsmodels, pyarrow, **arch** (for Hansen's SPA test), exchange_calendars, and in Stage 7 **ccxt** (free hourly crypto data)
 - **Streamlit + Plotly** for the dashboard
 - pytest for tests
 - No PyTorch/TensorFlow. The research shows deep learning adds at most about 1 percentage point of accuracy on this kind of problem, often not significantly.
@@ -86,7 +86,7 @@ You are the **lead agent**. For each stage:
 
 Extra feature sources: `^VIX`, `^VIX3M` (starts 2007), `^VXN` (Nasdaq-100 volatility index) and `^RVX` (Russell 2000 volatility index; if Yahoo doesn't serve it, log that in `PROGRESS.md` and use `^VIX` for IWM instead). Use ETFs rather than raw indices because they're actually tradable and give an honest buy-and-hold benchmark.
 
-**Don't add** Treasury yields, the dollar index, credit spreads, gold or Google Trends. The research found no evidence they help at a daily horizon, and Trends data gets revised, which hides lookahead.
+For Stages 1–6, **don't add** Treasury yields, the dollar index, credit spreads, gold or Google Trends as features. The research found no evidence they help at a daily horizon, and Trends data gets revised, which hides lookahead. Stage 7 adds a wider ETF universe, hourly crypto data and FRED macro data in a controlled way. Never add Google Trends.
 
 ## Project structure
 ```
@@ -96,7 +96,7 @@ quant-lab/
   PROGRESS.md          # plan, decisions, what was done
   GAUNTLET_REPORT.md   # critic verdicts per stage and round
   config.yaml          # assets, dates, costs, thresholds, starting capital
-  data/                # parquet files, gitignored, should stay under 10 MB
+  data/                # parquet files, gitignored; under 10 MB until Stage 7, about 50 MB after
     fomc_dates.csv     # scheduled FOMC announcement dates (hard-coded)
     results/           # backtest outputs + trials.parquet
   quant/
@@ -110,6 +110,10 @@ quant-lab/
     explain.py         # turns today's model inputs into plain-English reasoning
     theory.yaml        # one entry per feature group: the theory, evidence and paper links
     run_daily.py       # one command: update data -> predict -> update paper trades
+    universe.py        # Stage 7: multi-asset ETF + crypto universe
+    portfolio.py       # Stage 7: trend-following, sector rotation, pooled ML ranking
+    hourly.py          # Stage 7: hourly crypto data via ccxt + intraday features
+    macro.py           # Stage 7: FRED downloads with publication lags
   app/dashboard.py     # Streamlit app
   tests/
   README.md
@@ -285,6 +289,66 @@ Requirements:
 - README with setup (`uv sync`), how to run the backtest, the daily update and the dashboard, and how to change assets or settings.
 - All tests pass.
 - A short summary at the top of `GAUNTLET_REPORT.md`: total trial count, the Deflated Sharpe Ratio of the chosen strategy, the SPA p-value, whether it clears t > 3, any unresolved critic issues, and a one-line verdict: **"no evidence of an edge"**, **"weak evidence"** or **"evidence"**.
+
+## Stage 7 — Multi-asset portfolio and extra data
+Built only after Stage 6 is complete. Nothing from Stages 1–6 is changed except where noted; the four-asset models and their results stay as they are. This stage adds what real quant funds rely on most: **breadth** (many small edges averaged together) plus two free extra data sources.
+
+### 7a — Universe (free ETFs + two cryptos, in `config.yaml`)
+| Group | Tickers |
+|---|---|
+| US equity | SPY, QQQ, IWM |
+| US sectors | XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB (since 1998); XLRE (2015), XLC (2018) |
+| International equity | EFA, EEM, EWJ, VGK |
+| Bonds | SHY, IEF, TLT, TIP, LQD, HYG |
+| Real assets | GLD, DBC, VNQ |
+| Dollar | UUP |
+| Crypto | BTC-USD, ETH-USD |
+
+- Each asset enters the backtest only from its own start date plus warm-up (no back-filling).
+- **Survivorship note** for `PROGRESS.md` and the Reality check page: this list was chosen today, so it only contains ETFs and coins that still exist. That bias is much smaller than for individual stocks, which is why the universe uses ETFs and not today's S&P 500 members. Don't add more cryptos for the same reason.
+- `data/` may now grow to about 50 MB.
+
+### 7b — Portfolio strategies (rebalanced weekly or monthly, long-only by default)
+Baselines:
+- Equal weight across available assets; **inverse-volatility weight** (each asset gets the same risk); **60/40** SPY/IEF.
+
+Strategies:
+1. **Time-series momentum / trend-following** (Moskowitz, Ooi & Pedersen 2012; Hurst, Ooi & Pedersen "A Century of Evidence on Trend-Following"): for each asset, signal = sign of the 1-, 3- and 12-month returns averaged; hold the asset only when the signal is positive (long/flat; long/short as an optional config); size each position by inverse volatility; scale the whole portfolio to a **10% annual volatility target**.
+2. **Sector rotation** (industry momentum, Moskowitz & Grinblatt 1999): rank the sector ETFs by 12-month return skipping the latest month; hold the top 3 equally weighted; rebalance monthly.
+3. **Pooled ML ranking** (the setup behind Krauss et al. 2017, applied to ETFs): one logistic regression and one LightGBM trained across all assets on the Stage 2 feature families, predicting whether each asset beats the cross-sectional median over the next **21 trading days**; hold the top 5 with inverse-volatility weights. Purge 21 days between training and test.
+
+Rules:
+- Same walk-forward, calibration, trial log, cost rules (0.05% ETFs, 0.15% crypto, plus the 0.60% crypto stress case), PSR/DSR, SPA test and t > 3 hurdle as Stage 3.
+- Max weight per asset 25%; crypto in total at most 10%.
+- Hold-out: the same final 24 months. These portfolio strategies were **pre-registered in this spec on 2026-11-07, before the Stage 6 hold-out was run**, and must be built exactly as written; don't change them because of Stage 6 results. Their hold-out is evaluated **once** at the end of this stage.
+- **Honesty note:** the Stage 6 hold-out results for SPY, QQQ, IWM and BTC are already known, so for the portfolio this is a **partially seen hold-out**. Label it that way in `GAUNTLET_REPORT.md` and on the dashboard, and record the pre-registration date.
+- **Forward test (the truly unseen data):** from the day Stage 7 is finished, the portfolio paper-trading ledger is the real out-of-sample test. Show its results separately on the Portfolio page, with the start date and number of days, and never use them to change a strategy.
+- Metrics also include: average pairwise correlation of holdings, contribution to return and risk by asset group, turnover.
+
+### 7c — Hourly crypto data (`ccxt`, free public data, no account or API key)
+- Download hourly OHLCV for BTC/USDT and ETH/USDT from 2017 via `ccxt` public endpoints (exchange set in config; default Binance, fallback Kraken or Coinbase if blocked). Incremental updates, same validation and stale-data rules as Stage 1. Note in `PROGRESS.md` that USDT prices differ slightly from USD.
+- Align hourly bars to the Yahoo daily close (00:00 UTC). Daily features may only use hours up to that close.
+- New daily features for BTC and ETH: **realised volatility from hourly returns** (a much better volatility estimate than daily data), the return over the last 6 and 24 hours before the close, hourly volume concentration, and a **HAR-RV** forecast fitted on hourly-based realised volatility (Corsi 2009). Test them in the BTC model and the portfolio's volatility targeting, logged as trials.
+- Don't use Yahoo's intraday data for ETFs: it only goes back about 2 years.
+
+### 7d — Macro data from FRED (free CSV downloads, no API key)
+- Series: 3-month T-bill (`DTB3`), fed funds (`DFF`), 10-year yield (`DGS10`), 10y–2y term spread (`T10Y2Y`), high-yield credit spread (`BAMLH0A0HYM2`), 10-year breakeven inflation (`T10YIE`).
+- **Lookahead rule:** FRED dates are observation dates; treat a daily value as known only from the **next** trading day. Don't use monthly series like CPI (they're published weeks later and revised).
+- Uses:
+  1. **Risk-free rate** for Sharpe ratios and the **borrowing rate** in the leverage simulator (fed funds + 1.5%), replacing the fixed 6%. Re-running Stage 3–6 metrics with this is allowed and logged.
+  2. **Regime context** in the "Why?" explanations (e.g. "the yield curve is inverted").
+  3. Macro features in the portfolio and four-asset models **as an experiment only**, logged as trials. Welch & Goyal (2008) found these predictors fail out of sample, so the expected result is no improvement.
+
+### 7e — Dashboard additions
+- **Portfolio** page: today's target weights with the meter and "Why?" explanation per asset (which trend signals are on or off, and why), weights over time as a heat map, equity curves vs the three baselines, drawdowns, contribution by asset group, and a correlation matrix.
+- **Macro** panel on the Today page with the current rates and spreads, labelled as context, not a prediction.
+- `run_daily.py` also updates the universe, hourly crypto and FRED data, and the portfolio paper-trading ledger (unleveraged, $100,000 fake capital).
+- The Reality check page adds why breadth helps (many weak, uncorrelated edges average into a steadier result) and the survivorship note.
+
+### 7f — Wrap-up
+Add a Stage 7 section to the `GAUNTLET_REPORT.md` summary: trial count, Deflated Sharpe and SPA p-value for each portfolio strategy, hold-out results vs the equal-weight, inverse-vol and 60/40 baselines, and the same one-line verdict ("no evidence of an edge" / "weak evidence" / "evidence"). Update the README.
+
+All four critics run on Stage 7. The leakage auditor pays particular attention to the hourly-to-daily alignment, FRED publication lags, assets entering the universe late, and the 21-day purge.
 
 ## Ground rules
 - Be honest in results. If nothing beats buy-and-hold or vol-targeted buy-and-hold, say so clearly. Don't tune the hold-out period.
